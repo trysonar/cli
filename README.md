@@ -1,138 +1,131 @@
-# Sonar CLI
+# @sonarapp/cli
 
-Command-line tool for App Store Optimization. Research keywords, track rankings, and analyze competitors for iOS App Store and Google Play.
+[![npm](https://img.shields.io/npm/v/@sonarapp/cli.svg)](https://www.npmjs.com/package/@sonarapp/cli)
+[![license](https://img.shields.io/npm/l/@sonarapp/cli.svg)](./LICENSE)
 
-Built for [Sonar](https://trysonar.app) — the ASO platform for indie app developers.
+`sonar` — App Store Optimization from the command line.
+
+Look up apps, research keywords, track rankings, and run competitor analysis on the App Store and Google Play, all from your terminal. Powered by [Sonar](https://trysonar.app).
+
+---
 
 ## Install
 
 ```bash
-npm install -g sonar-aso
+npm install -g @sonarapp/cli
 ```
 
-Or run without installing:
+Requires Node.js 20+.
+
+## Authenticate
+
+Get an API key at [trysonar.app/developers](https://trysonar.app/developers) (requires a Sonar subscription — 7-day free trial available).
 
 ```bash
-npx sonar-aso <command>
-```
-
-## Quick Start
-
-```bash
-# Authenticate with your API key
 sonar auth login
+```
 
-# Search keywords with difficulty scores
-sonar keywords search "recipe app" --store ios
+This stores your key in `~/.config/sonar/config.json` (mode `0600`). Or set `SONAR_API_KEY` in your environment.
+
+```bash
+export SONAR_API_KEY=aso_...
+```
+
+## Quick start
+
+```bash
+# Look up any app by store ID (no tracking required)
+sonar apps lookup com.spotify.music --store android --table
+
+# Research a keyword
+sonar keywords search "meditation" --store ios --table
 
 # Get autocomplete suggestions
-sonar keywords suggestions "fitness" --store ios
+sonar keywords suggestions "med" --store ios --table
 
-# List your tracked apps
-sonar apps list
+# Run an ASO audit
+sonar apps score 1450772168 --store ios --table
 
-# Check rank history
-sonar rankings <app-id> --days 7
+# Start tracking an app (write-scope API key)
+sonar products create --ios 1450772168 --name "My App"
 
-# Export to CSV
-sonar export rankings <app-id> --format csv --output rankings.csv
+# Track keywords for it (write-scope API key)
+sonar keywords track <app-id> "habit tracker" "daily habits"
+
+# Track a keyword's ranking history
+sonar rankings <app-id> --table
+
+# Estimate monthly revenue
+sonar revenue --store ios --id 1450772168 --table
+
+# Export rankings to CSV
+sonar export rankings <app-id> --format csv > rankings.csv
 ```
+
+Add `--table` for human-readable tables. Default output is JSON, ready to pipe into `jq`, `fx`, or other tools.
 
 ## Commands
 
-### `sonar auth`
+```
+sonar auth login                              Authenticate with your API key
+sonar auth status                             Show authentication status
+sonar auth logout                             Remove saved credentials
 
-```bash
-sonar auth login              # Save your API key
-sonar auth status             # Show key + remaining quota
-sonar auth logout             # Remove saved credentials
+sonar apps list                               List your tracked apps
+sonar apps get <id>                           Show app details
+sonar apps lookup <store-id>                  Look up any app by store ID
+sonar apps search <query>                     Search apps in a store
+sonar apps score <store-id>                   ASO audit score (0-100)
+sonar apps extract-keywords <store-id>        Keywords from an app's metadata
+sonar apps reviews <store-id>                 Fetch app reviews
+sonar apps changes <id>                       Change history for a tracked app
+
+sonar keywords search <query>                 Keyword research (volume, difficulty)
+sonar keywords list <app-id>                  Keywords your app ranks for
+sonar keywords metrics <keywords...>          Difficulty + popularity (single or bulk)
+sonar keywords suggestions <seed>             Autocomplete suggestions
+sonar keywords track <app-id> <keywords...>   Start tracking keywords ✏️
+sonar keywords note <tracked-keyword-id>      Set or clear a keyword note ✏️
+
+sonar rankings <app-id>                       Rank history for an app
+sonar rankings keyword <keyword-id>           Apps ranking for a keyword
+
+sonar competitors keywords <competitor-id>    Competitor keyword analysis
+sonar competitors scan <competitor-id>        Discover competitor keywords ✏️
+
+sonar products create                         Create a product, start tracking ✏️
+sonar products add-app <product-id>           Link the second-store version ✏️
+sonar products add-competitor <product-id>    Track a competitor ✏️
+
+sonar revenue --store <ios|android> --id <id> Estimate monthly revenue
+
+sonar export rankings <app-id>                Export rankings to CSV/JSON
 ```
 
-### `sonar apps`
+Run `sonar <command> --help` for full options.
 
-```bash
-sonar apps list               # List all tracked apps
-sonar apps get <id>           # App details + latest snapshot
+Commands marked ✏️ mutate your workspace and require an API key created with the **`write` scope** plus a Full plan (an active trial counts). The rest work with the default `read` scope.
+
+## Global flags
+
+```
+--table                   Output as a formatted table instead of JSON
+--verbose                 Show request timing and rate-limit info
+--base-url <url>          Override the API base URL (for self-hosting / staging)
 ```
 
-### `sonar keywords`
-
-```bash
-sonar keywords search <query> --store ios       # Keyword research (difficulty, popularity)
-sonar keywords search <query> --store android --country de
-sonar keywords list <app-id>                    # List tracked keywords (auto-paginates)
-sonar keywords suggestions <seed> --store ios   # Autocomplete suggestions
-```
-
-### `sonar rankings`
-
-```bash
-sonar rankings <app-id>                         # Rank history (default: 30 days)
-sonar rankings <app-id> --days 7                # Last 7 days
-sonar rankings <app-id> --keyword <keyword-id>  # Filter by keyword
-sonar rankings keyword <keyword-id>             # SERP history for a keyword
-```
-
-### `sonar competitors`
-
-```bash
-sonar competitors keywords <competitor-id>              # Competitor's keywords
-sonar competitors keywords <competitor-id> --app <id>   # Gap analysis vs your app
-```
-
-### `sonar export`
-
-```bash
-sonar export rankings <app-id> --format csv             # CSV to stdout
-sonar export rankings <app-id> --format csv -o data.csv # CSV to file
-sonar export rankings <app-id> --format json            # JSON output
-```
-
-## Output Formats
-
-**JSON** (default) — pipe into `jq` or other tools:
-
-```bash
-sonar apps list | jq '.data[].name'
-```
-
-**Table** — human-readable with color-coded difficulty (green/yellow/red):
-
-```bash
-sonar keywords search "photo editor" --store ios --table
-```
-
-## Global Flags
-
-| Flag | Description |
-|-|-|
-| `--table` | Formatted table output instead of JSON |
-| `--verbose` | Show request URL, timing, and rate limit info |
-| `--base-url <url>` | Override API base URL |
-| `-V, --version` | Show version |
-| `-h, --help` | Show help |
-
-## Configuration
-
-Config is saved to `~/.config/sonar/config.json` with `0600` permissions.
-
-### Environment Variables
+## Environment variables
 
 | Variable | Description |
 |-|-|
-| `SONAR_API_KEY` | API key (overrides saved config) |
-| `SONAR_API_URL` | Base URL (overrides saved config) |
+| `SONAR_API_KEY` | Your Sonar API key. Overrides the value in `config.json`. |
+| `SONAR_API_URL` | API base URL. Default `https://trysonar.app`. |
+| `SONAR_CONFIG_PATH` | Path to the config file. Default `~/.config/sonar/config.json`. |
 
-Use environment variables for CI/CD:
+## Companion: MCP server for AI agents
 
-```bash
-SONAR_API_KEY=aso_xxx sonar apps list
-```
-
-## API Key
-
-Get your API key at [trysonar.app/developers](https://trysonar.app/developers). Included with every Sonar subscription.
+If you want Claude, Cursor, or Cline to drive Sonar directly, install [`@sonarapp/mcp`](https://www.npmjs.com/package/@sonarapp/mcp).
 
 ## License
 
-MIT
+MIT © Peter Sutarik

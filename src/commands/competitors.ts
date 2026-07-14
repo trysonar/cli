@@ -3,9 +3,10 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { loadConfig } from '../config.js';
 import { createClient } from '../client.js';
-import { formatCompetitorKeywordsTable } from '../formatters/table.js';
+import { formatCompetitorKeywordsTable, formatScanResult } from '../formatters/table.js';
 import { formatJson } from '../formatters/json.js';
-import type { ApiResponse, CompetitorKeyword } from '../types.js';
+import { runCommand } from './helpers.js';
+import type { ApiResponse, CompetitorKeyword, ScanCompetitorResult } from '../types.js';
 
 function requireConfig() {
   const config = loadConfig();
@@ -56,5 +57,23 @@ export function registerCompetitorsCommand(program: Command): void {
         console.error(chalk.red((err as Error).message));
         process.exit(1);
       }
+    });
+
+  competitors
+    .command('scan')
+    .description('Discover keywords a competitor ranks for and record ranks vs your app (requires a write-scope API key)')
+    .argument('<competitor-id>', 'Competitor app ID')
+    .requiredOption('--app <id>', 'Your app ID the scan compares against')
+    .action(async (competitorId: string, opts) => {
+      await runCommand(
+        program,
+        { loading: 'Scanning competitor (this can take a while)...', failed: 'Scan failed' },
+        (client) =>
+          client.post<ApiResponse<ScanCompetitorResult>>(
+            `/api/v1/competitors/${encodeURIComponent(competitorId)}/scan`,
+            { own_app_id: opts.app },
+          ),
+        (result) => formatScanResult(result.data),
+      );
     });
 }

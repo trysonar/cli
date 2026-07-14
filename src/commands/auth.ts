@@ -20,7 +20,7 @@ export function registerAuthCommand(program: Command): void {
 
       try {
         console.log(chalk.bold('Sonar CLI Login\n'));
-        console.log('Enter your API key. You can find it at:');
+        console.log('Enter your Pro tier API key. You can find it at:');
         console.log(chalk.dim('  https://trysonar.app/developers\n'));
 
         const apiKey = await rl.question('API Key: ');
@@ -79,6 +79,7 @@ export function registerAuthCommand(program: Command): void {
 
       // Try to fetch quota info
       try {
+        const client = createClient(config);
         const response = await fetch(`${config.baseUrl}/api/v1/apps`, {
           headers: {
             Authorization: `Bearer ${config.apiKey}`,

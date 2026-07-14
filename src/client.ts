@@ -7,6 +7,9 @@ export interface ClientOptions {
 
 export interface ApiClient {
   get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T>;
+  post<T>(path: string, body: Record<string, unknown>): Promise<T>;
+  patch<T>(path: string, body: Record<string, unknown>): Promise<T>;
+  delete<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T>;
 }
 
 export function createClient(config: CliConfig, options: ClientOptions = {}): ApiClient {
@@ -29,6 +32,34 @@ export function createClient(config: CliConfig, options: ClientOptions = {}): Ap
     throw err;
   }
 
+  async function send<T>(method: string, url: URL, body?: Record<string, unknown>): Promise<T> {
+    if (verbose) {
+      const startTime = performance.now();
+      process.stderr.write(`${method} ${url.toString()}\n`);
+
+      const response = await doFetch(method, url, apiKey, body);
+      const elapsed = (performance.now() - startTime).toFixed(0);
+
+      const rateLimit = response.headers.get('x-ratelimit-limit');
+      const rateRemaining = response.headers.get('x-ratelimit-remaining');
+      const rateReset = response.headers.get('x-ratelimit-reset');
+
+      process.stderr.write(`  Status: ${response.status} (${elapsed}ms)\n`);
+      if (rateLimit) {
+        process.stderr.write(`  Rate limit: ${rateRemaining}/${rateLimit} remaining`);
+        if (rateReset) {
+          process.stderr.write(` (resets ${rateReset})`);
+        }
+        process.stderr.write('\n');
+      }
+
+      return handleResponse<T>(response);
+    }
+
+    const response = await doFetch(method, url, apiKey, body);
+    return handleResponse<T>(response);
+  }
+
   return {
     async get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
       const url = new URL(path, baseUrl);
@@ -41,42 +72,48 @@ export function createClient(config: CliConfig, options: ClientOptions = {}): Ap
         }
       }
 
-      if (verbose) {
-        const startTime = performance.now();
-        process.stderr.write(`GET ${url.toString()}\n`);
+      return send<T>('GET', url);
+    },
 
-        const response = await doFetch(url, apiKey);
-        const elapsed = (performance.now() - startTime).toFixed(0);
+    async post<T>(path: string, body: Record<string, unknown>): Promise<T> {
+      return send<T>('POST', new URL(path, baseUrl), body);
+    },
 
-        const rateLimit = response.headers.get('x-ratelimit-limit');
-        const rateRemaining = response.headers.get('x-ratelimit-remaining');
-        const rateReset = response.headers.get('x-ratelimit-reset');
+    async patch<T>(path: string, body: Record<string, unknown>): Promise<T> {
+      return send<T>('PATCH', new URL(path, baseUrl), body);
+    },
 
-        process.stderr.write(`  Status: ${response.status} (${elapsed}ms)\n`);
-        if (rateLimit) {
-          process.stderr.write(`  Rate limit: ${rateRemaining}/${rateLimit} remaining`);
-          if (rateReset) {
-            process.stderr.write(` (resets ${rateReset})`);
+    async delete<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+      const url = new URL(path, baseUrl);
+
+      if (params) {
+        for (const [key, value] of Object.entries(params)) {
+          if (value !== undefined && value !== null) {
+            url.searchParams.set(key, String(value));
           }
-          process.stderr.write('\n');
         }
-
-        return handleResponse<T>(response);
       }
 
-      const response = await doFetch(url, apiKey);
-      return handleResponse<T>(response);
+      return send<T>('DELETE', url);
     },
   };
 }
 
-async function doFetch(url: URL, apiKey: string): Promise<Response> {
+async function doFetch(
+  method: string,
+  url: URL,
+  apiKey: string,
+  body?: Record<string, unknown>,
+): Promise<Response> {
   try {
     return await fetch(url.toString(), {
+      method,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: 'application/json',
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
   } catch (err) {
     if (err instanceof TypeError && (err as Error).message.includes('fetch')) {
@@ -104,7 +141,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
     case 401:
       throw new Error(message || 'Authentication failed. Run `sonar auth login` to set your API key.');
     case 403:
-      throw new Error(message || 'Access denied. This feature may require a paid subscription.');
+      throw new Error(message || 'Access denied. This feature may require a Full plan subscription or a write-scope API key.');
     case 404:
       throw new Error(message || 'Resource not found.');
     case 429:

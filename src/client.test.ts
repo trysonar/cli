@@ -148,6 +148,53 @@ describe("createClient", () => {
     );
   });
 
+  describe("write methods", () => {
+    it("sends POST with JSON body and Content-Type header", async () => {
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ data: { id: "prod-1" } }), { status: 201 })
+      );
+
+      const client = createClient(config);
+      const body = { apps: [{ store: "ios", store_id: "123" }] };
+      await client.post("/api/v1/products", body);
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toBe("https://api.example.com/api/v1/products");
+      expect(options.method).toBe("POST");
+      expect(options.headers.Authorization).toBe("Bearer test-api-key");
+      expect(options.headers["Content-Type"]).toBe("application/json");
+      expect(JSON.parse(options.body)).toEqual(body);
+    });
+
+    it("sends PATCH with JSON body", async () => {
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ data: { note: null } }), { status: 200 })
+      );
+
+      const client = createClient(config);
+      await client.patch("/api/v1/tracked-keywords/tk-1", { note: null });
+
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toBe("https://api.example.com/api/v1/tracked-keywords/tk-1");
+      expect(options.method).toBe("PATCH");
+      expect(JSON.parse(options.body)).toEqual({ note: null });
+    });
+
+    it("maps POST error responses the same as GET", async () => {
+      mockFetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { code: "forbidden", message: "write scope required" } }),
+          { status: 403 }
+        )
+      );
+
+      const client = createClient(config);
+      await expect(client.post("/api/v1/products", {})).rejects.toThrow(
+        "write scope required"
+      );
+    });
+  });
+
   describe("base URL validation", () => {
     it("rejects HTTP URLs (non-localhost)", () => {
       expect(() =>

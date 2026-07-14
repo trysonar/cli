@@ -1,47 +1,44 @@
 {
-  "name": "sonar-aso",
-  "version": "0.1.0",
-  "description": "CLI for App Store Optimization — keyword research, rank tracking, and competitor analysis for iOS and Android",
-  "type": "module",
-  "bin": {
-    "sonar": "dist/index.js",
-    "aso": "dist/index.js"
-  },
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "tsup",
-    "dev": "tsx src/index.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "prepublishOnly": "npm run build && npm run test"
-  },
+  "name": "@sonarapp/cli",
+  "version": "0.5.0",
+  "description": "Sonar — App Store Optimization from the command line",
   "keywords": [
     "aso",
     "app-store-optimization",
-    "keyword-research",
-    "rank-tracking",
-    "app-store",
-    "google-play",
+    "cli",
     "ios",
     "android",
-    "cli",
-    "seo",
-    "mobile-marketing"
+    "app-store",
+    "google-play",
+    "sonar"
   ],
-  "author": "Sonar <hello@trysonar.app> (https://trysonar.app)",
-  "license": "MIT",
   "homepage": "https://trysonar.app",
+  "bugs": "https://github.com/trysonar/cli/issues",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/trysonar/cli.git"
   },
-  "bugs": {
-    "url": "https://github.com/trysonar/cli/issues"
+  "license": "MIT",
+  "author": "Peter Sutarik",
+  "type": "module",
+  "bin": {
+    "sonar": "dist/index.mjs"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "chalk": "^5.6.2",
@@ -50,6 +47,7 @@
     "ora": "^9.3.0"
   },
   "devDependencies": {
+    "@types/node": "^25.1.0",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^5",

@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+// We need to mock the config path, so we mock the module internals
+// Instead, we test the logic by importing and calling functions with known temp paths
 
 describe("config", () => {
   let configDir: string;
@@ -10,8 +13,10 @@ describe("config", () => {
 
   beforeEach(() => {
     originalEnv = { ...process.env };
+    // Use a unique temp dir for each test
     configDir = join(tmpdir(), `sonar-cli-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     configFile = join(configDir, "config.json");
+    process.env.SONAR_CONFIG_PATH = configFile;
     delete process.env.SONAR_API_KEY;
     delete process.env.SONAR_API_URL;
   });
@@ -21,7 +26,6 @@ describe("config", () => {
     try {
       if (existsSync(configFile)) unlinkSync(configFile);
       if (existsSync(configDir)) {
-        const { rmSync } = require("node:fs");
         rmSync(configDir, { recursive: true });
       }
     } catch {
@@ -44,28 +48,18 @@ describe("config", () => {
     it("saveConfig sets restrictive file permissions (0600)", async () => {
       const { saveConfig, getConfigPath } = await import("./config.js");
       const path = getConfigPath();
+      saveConfig({ apiKey: "test-perm-check", baseUrl: "https://example.com" });
+      const stats = statSync(path);
+      const mode = stats.mode & 0o777;
+      expect(mode).toBe(0o600);
+    });
 
-      let hadOriginal = false;
-      let originalContent: string | undefined;
-      try {
-        originalContent = readFileSync(path, "utf-8");
-        hadOriginal = true;
-      } catch {
-        // No existing config
-      }
-
-      try {
-        saveConfig({ apiKey: "test-perm-check", baseUrl: "https://example.com" });
-        const stats = statSync(path);
-        const mode = stats.mode & 0o777;
-        expect(mode).toBe(0o600);
-      } finally {
-        if (hadOriginal && originalContent !== undefined) {
-          writeFileSync(path, originalContent, "utf-8");
-        } else {
-          try { unlinkSync(path); } catch { /* ignore */ }
-        }
-      }
+    it("loadConfig returns null when no config file and no env vars", async () => {
+      const { loadConfig } = await import("./config.js");
+      // SONAR_CONFIG_PATH (set in beforeEach) points at a nonexistent temp
+      // file, and config.ts resolves the path at call time — so with no env
+      // vars and no file, loadConfig must return null.
+      expect(loadConfig()).toBeNull();
     });
 
     it("env vars override file config", async () => {
@@ -84,40 +78,20 @@ describe("config", () => {
       process.env.SONAR_API_KEY = "env-key-789";
       delete process.env.SONAR_API_URL;
 
-      const { loadConfig, getConfigPath } = await import("./config.js");
-      const path = getConfigPath();
+      const { loadConfig } = await import("./config.js");
+      const config = loadConfig();
 
-      let hadOriginal = false;
-      let originalContent: string | undefined;
-      try {
-        originalContent = readFileSync(path, "utf-8");
-        hadOriginal = true;
-        unlinkSync(path);
-      } catch {
-        // No existing config file
-      }
-
-      try {
-        const config = loadConfig();
-
-        expect(config).not.toBeNull();
-        expect(config!.apiKey).toBe("env-key-789");
-        expect(config!.baseUrl).toBe("https://trysonar.app");
-      } finally {
-        if (hadOriginal && originalContent !== undefined) {
-          writeFileSync(path, originalContent, "utf-8");
-        }
-      }
+      expect(config).not.toBeNull();
+      expect(config!.apiKey).toBe("env-key-789");
+      expect(config!.baseUrl).toBe("https://trysonar.app");
     });
   });
 
   describe("getConfigPath", () => {
-    it("returns path under ~/.config/sonar", async () => {
+    it("returns the override path when SONAR_CONFIG_PATH is set", async () => {
       const { getConfigPath } = await import("./config.js");
       const path = getConfigPath();
-      expect(path).toContain(".config");
-      expect(path).toContain("sonar");
-      expect(path).toContain("config.json");
+      expect(path).toBe(configFile);
     });
   });
 });
