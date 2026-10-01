@@ -83,7 +83,7 @@ describe("config", () => {
 
       expect(config).not.toBeNull();
       expect(config!.apiKey).toBe("env-key-789");
-      expect(config!.baseUrl).toBe("https://trysonar.app");
+      expect(config!.baseUrl).toBe("https://api.trysonar.app");
     });
   });
 

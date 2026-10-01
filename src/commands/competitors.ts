@@ -1,21 +1,18 @@
 import { Command } from 'commander';
-import chalk from 'chalk';
-import ora from 'ora';
-import { loadConfig } from '../config.js';
-import { createClient } from '../client.js';
-import { formatCompetitorKeywordsTable, formatScanResult } from '../formatters/table.js';
-import { formatJson } from '../formatters/json.js';
+import {
+  formatAnalyzeResult,
+  formatCompetitorKeywordsTable,
+  formatLandscape,
+  formatScanResult,
+} from '../formatters/table.js';
 import { runCommand } from './helpers.js';
-import type { ApiResponse, CompetitorKeyword, ScanCompetitorResult } from '../types.js';
-
-function requireConfig() {
-  const config = loadConfig();
-  if (!config) {
-    console.error(chalk.red('Not authenticated. Run `sonar auth login` first.'));
-    process.exit(1);
-  }
-  return config;
-}
+import type {
+  ApiResponse,
+  CompetitorInsightPayload,
+  CompetitorKeyword,
+  CompetitorLandscapeResult,
+  ScanCompetitorResult,
+} from '../types.js';
 
 export function registerCompetitorsCommand(program: Command): void {
   const competitors = program
@@ -28,35 +25,55 @@ export function registerCompetitorsCommand(program: Command): void {
     .argument('<competitor-id>', 'Competitor app ID')
     .option('--app <id>', 'Your app ID (for gap analysis)')
     .action(async (competitorId: string, opts) => {
-      const config = requireConfig();
-      const globalOpts = program.opts();
-      const client = createClient(config, { verbose: globalOpts.verbose });
+      await runCommand(
+        program,
+        { loading: 'Fetching competitor keywords...', failed: 'Failed to fetch competitor keywords' },
+        (client) => {
+          const params: Record<string, string | number | undefined> = {};
+          if (opts.app) {
+            params.app_id = opts.app;
+          }
 
-      const spinner = globalOpts.table ? ora('Fetching competitor keywords...').start() : null;
+          return client.get<ApiResponse<CompetitorKeyword[]>>(
+            `/api/v1/competitors/${competitorId}/keywords`,
+            params,
+          );
+        },
+        (result) => formatCompetitorKeywordsTable(result.data),
+      );
+    });
 
-      try {
-        const params: Record<string, string | number | undefined> = {};
-        if (opts.app) {
-          params.app_id = opts.app;
-        }
+  competitors
+    .command('landscape')
+    .description('Competitive keyword landscape for one of your apps: gaps, threats, leads + latest AI insight')
+    .argument('<app-id>', 'Your app ID')
+    .action(async (appId: string) => {
+      await runCommand(
+        program,
+        { loading: 'Building competitive landscape...', failed: 'Failed to fetch landscape' },
+        (client) =>
+          client.get<ApiResponse<CompetitorLandscapeResult>>(
+            `/api/v1/apps/${encodeURIComponent(appId)}/competitor-landscape`,
+          ),
+        (result) => formatLandscape(result.data),
+      );
+    });
 
-        const result = await client.get<ApiResponse<CompetitorKeyword[]>>(
-          `/api/v1/competitors/${competitorId}/keywords`,
-          params,
-        );
-
-        if (spinner) spinner.stop();
-
-        if (globalOpts.table) {
-          console.log(formatCompetitorKeywordsTable(result.data));
-        } else {
-          console.log(formatJson(result));
-        }
-      } catch (err) {
-        if (spinner) spinner.fail('Failed to fetch competitor keywords');
-        console.error(chalk.red((err as Error).message));
-        process.exit(1);
-      }
+  competitors
+    .command('analyze')
+    .description('Generate a fresh AI competitive insight for one of your apps (7-day cooldown; requires a write-scope API key)')
+    .argument('<app-id>', 'Your app ID')
+    .action(async (appId: string) => {
+      await runCommand(
+        program,
+        { loading: 'Analyzing competitive landscape (AI)...', failed: 'Analysis failed' },
+        (client) =>
+          client.post<ApiResponse<{ app_id: string; insight: CompetitorInsightPayload }>>(
+            `/api/v1/apps/${encodeURIComponent(appId)}/competitor-landscape`,
+            {},
+          ),
+        (result) => formatAnalyzeResult(result.data.insight),
+      );
     });
 
   competitors

@@ -1,20 +1,7 @@
 import { Command } from 'commander';
-import chalk from 'chalk';
-import ora from 'ora';
-import { loadConfig } from '../config.js';
-import { createClient } from '../client.js';
 import { formatRankingsTable } from '../formatters/table.js';
-import { formatJson } from '../formatters/json.js';
+import { runCommand } from './helpers.js';
 import type { ApiResponse, RankingEntry } from '../types.js';
-
-function requireConfig() {
-  const config = loadConfig();
-  if (!config) {
-    console.error(chalk.red('Not authenticated. Run `sonar auth login` first.'));
-    process.exit(1);
-  }
-  return config;
-}
 
 export function registerRankingsCommand(program: Command): void {
   const rankings = program
@@ -29,37 +16,24 @@ export function registerRankingsCommand(program: Command): void {
         return;
       }
 
-      const config = requireConfig();
-      const globalOpts = program.opts();
-      const client = createClient(config, { verbose: globalOpts.verbose });
+      await runCommand(
+        program,
+        { loading: 'Fetching rankings...', failed: 'Failed to fetch rankings' },
+        (client) => {
+          const params: Record<string, string | number | undefined> = {
+            days: opts.days,
+          };
+          if (opts.keyword) {
+            params.keyword_id = opts.keyword;
+          }
 
-      const spinner = globalOpts.table ? ora('Fetching rankings...').start() : null;
-
-      try {
-        const params: Record<string, string | number | undefined> = {
-          days: opts.days,
-        };
-        if (opts.keyword) {
-          params.keyword_id = opts.keyword;
-        }
-
-        const result = await client.get<ApiResponse<RankingEntry[]>>(
-          `/api/v1/apps/${appId}/rankings`,
-          params,
-        );
-
-        if (spinner) spinner.stop();
-
-        if (globalOpts.table) {
-          console.log(formatRankingsTable(result.data));
-        } else {
-          console.log(formatJson(result));
-        }
-      } catch (err) {
-        if (spinner) spinner.fail('Failed to fetch rankings');
-        console.error(chalk.red((err as Error).message));
-        process.exit(1);
-      }
+          return client.get<ApiResponse<RankingEntry[]>>(
+            `/api/v1/apps/${appId}/rankings`,
+            params,
+          );
+        },
+        (result) => formatRankingsTable(result.data),
+      );
     });
 
   rankings
@@ -68,29 +42,15 @@ export function registerRankingsCommand(program: Command): void {
     .argument('<keyword-id>', 'Keyword ID')
     .option('--days <n>', 'Number of days of history', '30')
     .action(async (keywordId: string, opts) => {
-      const config = requireConfig();
-      const globalOpts = program.opts();
-      const client = createClient(config, { verbose: globalOpts.verbose });
-
-      const spinner = globalOpts.table ? ora('Fetching keyword rankings...').start() : null;
-
-      try {
-        const result = await client.get<ApiResponse<RankingEntry[]>>(
-          `/api/v1/keywords/${keywordId}/rankings`,
-          { days: opts.days },
-        );
-
-        if (spinner) spinner.stop();
-
-        if (globalOpts.table) {
-          console.log(formatRankingsTable(result.data));
-        } else {
-          console.log(formatJson(result));
-        }
-      } catch (err) {
-        if (spinner) spinner.fail('Failed to fetch keyword rankings');
-        console.error(chalk.red((err as Error).message));
-        process.exit(1);
-      }
+      await runCommand(
+        program,
+        { loading: 'Fetching keyword rankings...', failed: 'Failed to fetch keyword rankings' },
+        (client) =>
+          client.get<ApiResponse<RankingEntry[]>>(
+            `/api/v1/keywords/${keywordId}/rankings`,
+            { days: opts.days },
+          ),
+        (result) => formatRankingsTable(result.data),
+      );
     });
 }

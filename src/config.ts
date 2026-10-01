@@ -28,7 +28,9 @@ export function loadConfig(): CliConfig | null {
   }
 
   const apiKey = envKey || fileConfig.apiKey;
-  const baseUrl = envUrl || fileConfig.baseUrl || "https://trysonar.app";
+  // api.trysonar.app hits the dedicated API box directly (Aug 2026);
+  // trysonar.app still works and proxies to the same backend.
+  const baseUrl = envUrl || fileConfig.baseUrl || "https://api.trysonar.app";
 
   if (!apiKey) {
     return null;

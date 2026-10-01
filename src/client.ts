@@ -1,6 +1,9 @@
 import type { CliConfig } from './config.js';
 import type { ApiError } from './types.js';
 
+declare const __SONAR_CLI_VERSION__: string;
+const CLI_VERSION = typeof __SONAR_CLI_VERSION__ !== 'undefined' ? __SONAR_CLI_VERSION__ : 'dev';
+
 export interface ClientOptions {
   verbose?: boolean;
 }
@@ -111,6 +114,8 @@ async function doFetch(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: 'application/json',
+        // Self-identify so the API's usage stats can attribute CLI traffic.
+        'User-Agent': `sonar-cli/${CLI_VERSION}`,
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -141,16 +146,35 @@ async function handleResponse<T>(response: Response): Promise<T> {
     case 401:
       throw new Error(message || 'Authentication failed. Run `sonar auth login` to set your API key.');
     case 403:
-      throw new Error(message || 'Access denied. This feature may require a Full plan subscription or a write-scope API key.');
+      throw new Error(message || 'Access denied. This feature may require an Indie plan subscription or a write-scope API key.');
     case 404:
       throw new Error(message || 'Resource not found.');
     case 429:
-      throw new Error(message || 'Rate limit exceeded. Please wait before making more requests.');
+      // The API sizes Retry-After to the real scraper-queue depth — surface it
+      // so users (and scripts wrapping the CLI) back off at the drain rate
+      // instead of retrying into a saturated queue.
+      throw new Error(
+        withRetryAfter(
+          message || 'Rate limit exceeded. Please wait before making more requests.',
+          response
+        )
+      );
     case 500:
     case 502:
-    case 503:
       throw new Error(message || 'Server error. Please try again later.');
+    case 503:
+      throw new Error(
+        withRetryAfter(message || 'Server error. Please try again later.', response)
+      );
     default:
       throw new Error(message || `Request failed with status ${response.status}.`);
   }
+}
+
+/** Append the server's Retry-After hint (seconds) to a throttle message. */
+function withRetryAfter(message: string, response: Response): string {
+  const seconds = Number(response.headers.get('Retry-After'));
+  if (!Number.isFinite(seconds) || seconds <= 0) return message;
+  if (/retry-after|retry in \d|retry after \d/i.test(message)) return message;
+  return `${message} Retry after ${seconds}s.`;
 }

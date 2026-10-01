@@ -1,9 +1,10 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { formatAlertsTable } from '../formatters/table.js';
+import { formatAlertEventsTable, formatAlertsTable } from '../formatters/table.js';
 import { runCommand, confirmDestructive } from './helpers.js';
 import type {
   ApiResponse,
+  AlertEvent,
   AlertRule,
   AlertType,
   DeleteAlertResult,
@@ -18,6 +19,7 @@ const ALERT_TYPES: AlertType[] = [
   'rating_drop',
   'review_spike',
   'competitor_change',
+  'top_chart',
 ];
 
 export function registerAlertsCommand(program: Command): void {
@@ -38,11 +40,41 @@ export function registerAlertsCommand(program: Command): void {
     });
 
   alerts
+    .command('events')
+    .description('Detected alert events (the same feed as the in-app Recent alerts panel), newest first')
+    .option('--type <type>', `Filter to one alert type (${ALERT_TYPES.join(', ')})`)
+    .option('--app <app-id>', 'Filter to one tracked app (Sonar app ID or store ID)')
+    .option('--since <iso>', 'Only events created at/after this ISO timestamp')
+    .option('--limit <n>', 'Max events to return (default 50, max 200)', parseInt)
+    .action(async (opts) => {
+      if (opts.type && !ALERT_TYPES.includes(opts.type as AlertType)) {
+        console.error(chalk.red(`Invalid alert type "${opts.type}". Use one of: ${ALERT_TYPES.join(', ')}`));
+        process.exit(1);
+      }
+      await runCommand(
+        program,
+        { loading: 'Fetching alert events...', failed: 'Failed to fetch alert events' },
+        (client) =>
+          client.get<ApiResponse<AlertEvent[]>>('/api/v1/alerts/events', {
+            type: opts.type,
+            app_id: opts.app,
+            since: opts.since,
+            limit: opts.limit,
+          }),
+        (result) => formatAlertEventsTable(result.data),
+      );
+    });
+
+  alerts
     .command('set')
     .description(`Create or update an alert rule. Type is one of: ${ALERT_TYPES.join(', ')}`)
     .argument('<type>', `Alert type (${ALERT_TYPES.join(', ')})`)
     .option('--scope-app <app-id>', 'Scope to a single app (omit for org-wide)')
-    .option('--threshold <n>', 'Threshold (defaults to the per-type default)', parseInt)
+    .option('--threshold <n>', 'Threshold (defaults to the per-type default; top_chart: rank cutoff 1-200)', parseInt)
+    .option(
+      '--countries <codes>',
+      'top_chart only: comma-separated storefronts to watch, e.g. us,de,gb (max 10). Pass "" to fall back to your tracked-keyword countries',
+    )
     .option('--disabled', 'Create the rule disabled (default: enabled)')
     .action(async (type: string, opts) => {
       if (!ALERT_TYPES.includes(type as AlertType)) {
@@ -58,12 +90,21 @@ export function registerAlertsCommand(program: Command): void {
             type,
             ...(opts.scopeApp ? { scope_app_id: opts.scopeApp } : {}),
             ...(opts.threshold !== undefined ? { threshold: opts.threshold } : {}),
+            ...(opts.countries !== undefined
+              ? {
+                  countries: String(opts.countries)
+                    .split(',')
+                    .map((c: string) => c.trim().toLowerCase())
+                    .filter(Boolean),
+                }
+              : {}),
             enabled: !opts.disabled,
           }),
         (result) =>
           `${chalk.green('✓')} Alert rule saved: ${result.data.type} ` +
           `${chalk.dim(`(${result.data.scope_app_id ? `app ${result.data.scope_app_id}` : 'all apps'}, ` +
             `threshold ${result.data.effective_threshold ?? '-'}, ` +
+            (result.data.countries?.length ? `countries ${result.data.countries.join(',')}, ` : '') +
             `${result.data.enabled ? 'enabled' : 'disabled'})`)} ` +
           chalk.dim(result.data.id),
       );

@@ -1,14 +1,19 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { loadConfig } from '../config.js';
 import { createClient } from '../client.js';
-import { formatKeywordsTable, formatSuggestionsTable, formatTrackKeywordsResult } from '../formatters/table.js';
+import {
+  formatDiscoveredKeywordsTable,
+  formatKeywordsTable,
+  formatSuggestionsTable,
+  formatTrackKeywordsResult,
+} from '../formatters/table.js';
 import { formatJson } from '../formatters/json.js';
-import { runCommand, confirmDestructive } from './helpers.js';
+import { requireConfig, runCommand, confirmDestructive } from './helpers.js';
 import type {
   ApiResponse,
   PaginatedResponse,
+  DiscoveredKeywordsResult,
   KeywordResult,
   TrackedKeyword,
   Suggestion,
@@ -17,15 +22,6 @@ import type {
   UntrackKeywordResult,
   UntrackKeywordsResult,
 } from '../types.js';
-
-function requireConfig() {
-  const config = loadConfig();
-  if (!config) {
-    console.error(chalk.red('Not authenticated. Run `sonar auth login` first.'));
-    process.exit(1);
-  }
-  return config;
-}
 
 export function registerKeywordsCommand(program: Command): void {
   const keywords = program
@@ -39,31 +35,17 @@ export function registerKeywordsCommand(program: Command): void {
     .requiredOption('--store <store>', 'App store (ios or android)')
     .option('--country <cc>', 'Country code', 'us')
     .action(async (query: string, opts) => {
-      const config = requireConfig();
-      const globalOpts = program.opts();
-      const client = createClient(config, { verbose: globalOpts.verbose });
-
-      const spinner = globalOpts.table ? ora('Searching keywords...').start() : null;
-
-      try {
-        const result = await client.get<ApiResponse<KeywordResult[]>>('/api/v1/keywords/search', {
-          q: query,
-          store: opts.store,
-          country: opts.country,
-        });
-
-        if (spinner) spinner.stop();
-
-        if (globalOpts.table) {
-          console.log(formatKeywordsTable(result.data));
-        } else {
-          console.log(formatJson(result));
-        }
-      } catch (err) {
-        if (spinner) spinner.fail('Search failed');
-        console.error(chalk.red((err as Error).message));
-        process.exit(1);
-      }
+      await runCommand(
+        program,
+        { loading: 'Searching keywords...', failed: 'Search failed' },
+        (client) =>
+          client.get<ApiResponse<KeywordResult[]>>('/api/v1/keywords/search', {
+            q: query,
+            store: opts.store,
+            country: opts.country,
+          }),
+        (result) => formatKeywordsTable(result.data),
+      );
     });
 
   keywords
@@ -109,6 +91,38 @@ export function registerKeywordsCommand(program: Command): void {
         console.error(chalk.red((err as Error).message));
         process.exit(1);
       }
+    });
+
+  keywords
+    .command('discovered')
+    .description("Keywords Sonar discovered for an app but that aren't tracked yet (sorted by opportunity)")
+    .argument('<app-id>', 'App ID')
+    .option('--country <cc>', 'Filter to one market')
+    .option('--source <source>', 'Filter by discovery source (autocomplete, metadata, serp_scan, competitor, apple_ads, ai)')
+    .option('--status <status>', 'Row status: new (default), tracked, hidden, or all')
+    .option('--bucket <bucket>', 'Classification: ranked, gap, or idea')
+    .option('--min-relevance <n>', 'Minimum AI relevance (0-100)', parseInt)
+    .option('--min-opportunity <n>', 'Minimum opportunity score (0-100)', parseInt)
+    .option('--limit <n>', 'Max rows to return (default 200, max 500)', parseInt)
+    .action(async (appId: string, opts) => {
+      await runCommand(
+        program,
+        { loading: 'Fetching discovered keywords...', failed: 'Failed to fetch discovered keywords' },
+        (client) =>
+          client.get<ApiResponse<DiscoveredKeywordsResult>>(
+            `/api/v1/apps/${appId}/discovered-keywords`,
+            {
+              country: opts.country,
+              source: opts.source,
+              status: opts.status,
+              bucket: opts.bucket,
+              min_relevance: opts.minRelevance,
+              min_opportunity: opts.minOpportunity,
+              limit: opts.limit,
+            },
+          ),
+        (result) => formatDiscoveredKeywordsTable(result.data),
+      );
     });
 
   keywords
@@ -161,7 +175,20 @@ export function registerKeywordsCommand(program: Command): void {
 
         if (globalOpts.table) {
           console.log(formatKeywordsTable(data));
-          console.log(chalk.dim(`\n${data.length} keyword${data.length === 1 ? '' : 's'} · ${data.length} credit${data.length === 1 ? '' : 's'} charged`));
+          // Terms the API couldn't serve are refunded server-side, so they
+          // must not show up in the charge line.
+          const unserved = data.filter((k) => k.error);
+          const charged = data.length - unserved.length;
+          console.log(chalk.dim(`\n${data.length} keyword${data.length === 1 ? '' : 's'} · ${charged} credit${charged === 1 ? '' : 's'} charged`));
+          if (unserved.length > 0) {
+            const retry = unserved.find((k) => k.error?.retry_after_seconds)?.error
+              ?.retry_after_seconds;
+            console.log(
+              chalk.yellow(
+                `${unserved.length} keyword${unserved.length === 1 ? '' : 's'} not served${retry ? ` — retry in ${retry}s` : ''}`,
+              ),
+            );
+          }
         } else {
           console.log(formatJson({ data }));
         }
@@ -347,30 +374,16 @@ export function registerKeywordsCommand(program: Command): void {
     .requiredOption('--store <store>', 'App store (ios or android)')
     .option('--country <cc>', 'Country code', 'us')
     .action(async (seed: string, opts) => {
-      const config = requireConfig();
-      const globalOpts = program.opts();
-      const client = createClient(config, { verbose: globalOpts.verbose });
-
-      const spinner = globalOpts.table ? ora('Fetching suggestions...').start() : null;
-
-      try {
-        const result = await client.get<ApiResponse<Suggestion[]>>('/api/v1/keywords/suggestions', {
-          q: seed,
-          store: opts.store,
-          country: opts.country,
-        });
-
-        if (spinner) spinner.stop();
-
-        if (globalOpts.table) {
-          console.log(formatSuggestionsTable(result.data));
-        } else {
-          console.log(formatJson(result));
-        }
-      } catch (err) {
-        if (spinner) spinner.fail('Failed to fetch suggestions');
-        console.error(chalk.red((err as Error).message));
-        process.exit(1);
-      }
+      await runCommand(
+        program,
+        { loading: 'Fetching suggestions...', failed: 'Failed to fetch suggestions' },
+        (client) =>
+          client.get<ApiResponse<Suggestion[]>>('/api/v1/keywords/suggestions', {
+            q: seed,
+            store: opts.store,
+            country: opts.country,
+          }),
+        (result) => formatSuggestionsTable(result.data),
+      );
     });
 }

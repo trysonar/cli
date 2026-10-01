@@ -2,19 +2,11 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { writeFileSync } from 'node:fs';
-import { loadConfig } from '../config.js';
 import { createClient } from '../client.js';
+import { csvCell } from '../formatters/csv.js';
 import { formatJson } from '../formatters/json.js';
+import { requireConfig } from './helpers.js';
 import type { ApiResponse, RankingEntry } from '../types.js';
-
-function requireConfig() {
-  const config = loadConfig();
-  if (!config) {
-    console.error(chalk.red('Not authenticated. Run `sonar auth login` first.'));
-    process.exit(1);
-  }
-  return config;
-}
 
 export function registerExportCommand(program: Command): void {
   const exp = program
@@ -50,11 +42,7 @@ export function registerExportCommand(program: Command): void {
           const lines = ['keyword,date,rank'];
           for (const entry of result.data) {
             for (const point of entry.history) {
-              // Escape keyword if it contains commas or quotes
-              const keyword = entry.keyword.includes(',') || entry.keyword.includes('"')
-                ? `"${entry.keyword.replace(/"/g, '""')}"`
-                : entry.keyword;
-              lines.push(`${keyword},${point.measured_at},${point.rank}`);
+              lines.push([entry.keyword, point.measured_at, point.rank].map(csvCell).join(','));
             }
           }
           output = lines.join('\n') + '\n';

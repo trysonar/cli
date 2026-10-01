@@ -1,5 +1,85 @@
 # @sonarapp/cli
 
+## 0.9.1
+
+### Patch Changes
+
+- d408508: Refresh the README tool and command reference. The MCP README now lists all 55 tools grouped by plan (stateless, workspace reads, Agency-only, write tools, Screenshot Studio), notes which tools run keyless on the free tier, and corrects the default `SONAR_API_URL`. The CLI README lists every command, including `apps overview`, `apps sales`, `apps engagement`, `keywords discovered`, `portfolio`, `alerts` and `charts top`, and marks the Agency-only ones.
+
+## 0.9.0
+
+### Minor Changes
+
+- 0d087a2: Add App Store Connect sales and engagement for your own iOS apps (Agency plan, App Store Connect connection required). New MCP tools `sonar_app_sales` (downloads, redownloads, IAP units, approximate USD proceeds, per-country breakdown) and `sonar_app_engagement` (impressions, product page views, downloads, conversion rates, search share, impressions by source, installs, deletions, sessions), and the matching CLI commands `sonar apps sales <id>` and `sonar apps engagement <id>` with `--start`, `--end`, `--days` and `--store`. Impressions follow App Store Connect's definition and include product page views. When data is missing, the response's `status` and `message` say why (not connected, not an iOS app, analytics still pending, key lacks the Admin role).
+- 00b57be: Add the `top_chart` alert type: get notified when one of your apps enters or leaves a store top chart (overall and its category) in the countries you choose. `sonar_set_alert` and `sonar alerts set` accept a `countries` list (max 10) and a rank cutoff via `threshold` (default 200).
+
+## 0.8.1
+
+### Patch Changes
+
+- 00da7ee: Explain daily ranking outcomes from the API's additive observations field: ranked, not found in completed search results, or no confirmed observation. CLI rank summaries use the latest dated outcome instead of an older position.
+- 303bc95: Escape spreadsheet formula prefixes in CSV text cells and quote multiline values while preserving numeric ranks. JSON exports are unchanged.
+
+## 0.8.0
+
+### Minor Changes
+
+- 351f7af: Add an optional Android review language (`--lang` in the CLI, `lang` in MCP).
+  Without a language, Sonar merges the market language plus English, Spanish,
+  French, and Arabic review feeds, deduplicating reviews before sorting.
+
+### Patch Changes
+
+- 45d1874: Tell the truth about keywords a bulk metrics request couldn't serve. Terms the
+  scraper queue sheds come back with an `error` and zeroed fields; the CLI table
+  printed those zeros as data (difficulty 0, coloured "easiest") and counted them
+  in the "credits charged" line even though the server refunds them. Shed rows
+  now render as "rate limited — retry in 30s (not charged)", the charge line
+  counts only served keywords, and the MCP tool folds the response's new
+  `retry_after_seconds` into the term's message so agents back off at the drain
+  rate — the `Retry-After` header is nonstandard on a 200 and proxies drop it.
+- 3b80241: Surface the server's `Retry-After` hint in throttle errors. The API now sizes
+  that header to the real scraper-queue depth, so a 429/503 message reads
+  "Retry after 30s." instead of a bare "retry later" — agents and scripts back
+  off at the drain rate rather than retrying straight back into congestion.
+
+## 0.7.1
+
+### Patch Changes
+
+- dc71090: Default API base URL is now `https://api.trysonar.app` — the dedicated API
+  serving endpoint with drastically higher keyword-compute throughput.
+  `https://trysonar.app` keeps working (it proxies to the same backend), and
+  `SONAR_API_URL` / saved config still override the default.
+- c14349c: Top charts depth raised to 200 — the `limit` parameter of `sonar_top_charts` / `sonar charts top` now accepts 1-200, and summary/movers/dropped cover the full top 200.
+
+## 0.7.0
+
+### Minor Changes
+
+- 20be68f: Competitor scan upgraded to the AI-first discovery pipeline. `sonar_scan_competitor` / `sonar competitors scan` now return `generated` / `queued` / `verified_now` counts: the scan generates terms from the competitor's listing (brand queries included), verifies the first batch inline (~30s), and the rest verify in the background — poll competitor keywords for results as they land. The previous `discovered` / `ranked` response fields are gone.
+- a9a1d63: Top Charts. New `sonar charts top` command and `sonar_top_charts` MCP tool wrap `GET /api/v1/charts/top`: the store's top free/paid/grossing chart (overall or by category, any country) with day-over-day movement — per-app rank delta, apps new to the chart, the biggest movers, and apps that dropped out. Market-wide, so it needs no tracked apps, and it works without an API key on the anonymous free tier. `summary`, `movers` and `droppedApps` always describe the whole top 100; `--limit` / `limit` truncates the returned entries only.
+- 83b69f5: Add app overview, Agency portfolio, discovered keywords, alert events, and AI review insights.
+  - MCP: new tools `sonar_discovered_keywords`, `sonar_alert_events`, `sonar_review_insights`, `sonar_generate_review_insights`, `sonar_app_overview`, and `sonar_portfolio` (53 tools total, full v1 API parity).
+  - CLI: new commands `sonar apps overview`, `sonar portfolio`, `sonar keywords discovered`, `sonar alerts events`, `sonar apps insights`, and `sonar apps analyze-reviews`.
+
+### Patch Changes
+
+- 6558083: Rename the user-facing plan name from "Full plan" to "Indie plan" in tool descriptions and error messages, matching current Sonar pricing. Update the Smithery badge to the new trysonar/sonar namespace.
+
+## 0.6.0
+
+### Minor Changes
+
+- Requests now send a `sonar-cli/<version>` User-Agent so server-side usage stats can attribute CLI traffic.
+
+- c1b99c4: Revenue estimates now include a `confidence` grade (high/medium/low) and `confidence_factors` explaining it. The CLI prints the grade and factors in table output; the MCP tool description now instructs agents to communicate confidence alongside the number.
+- e8db12c: Starred keywords: mark tracked keywords as favorites/targets. CLI gains `sonar keywords star <id>` / `unstar <id>` and shows a ★ marker in `keywords list`; MCP gains the `sonar_star_keyword` write tool, and `sonar_app_keywords` now returns `note` and `starred_at` per keyword.
+
+### Patch Changes
+
+- eb0c134: Point repository and bugs links at the public GitHub mirrors (trysonar/cli, trysonar/mcp) so the Repository link on npm resolves for everyone.
+
 ## 0.5.0
 
 ### Minor Changes

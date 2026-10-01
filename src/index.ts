@@ -8,6 +8,8 @@ import { registerExportCommand } from './commands/export.js';
 import { registerRevenueCommand } from './commands/revenue.js';
 import { registerProductsCommand } from './commands/products.js';
 import { registerAlertsCommand } from './commands/alerts.js';
+import { registerChartsCommand } from './commands/charts.js';
+import { registerPortfolioCommand } from './commands/portfolio.js';
 
 declare const __SONAR_CLI_VERSION__: string;
 const VERSION = typeof __SONAR_CLI_VERSION__ !== 'undefined' ? __SONAR_CLI_VERSION__ : 'dev';
@@ -31,5 +33,7 @@ registerExportCommand(program);
 registerRevenueCommand(program);
 registerProductsCommand(program);
 registerAlertsCommand(program);
+registerChartsCommand(program);
+registerPortfolioCommand(program);
 
 program.parse();

@@ -1,8 +1,5 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
-import { loadConfig } from '../config.js';
-import { createClient } from '../client.js';
 import {
   formatAppsTable,
   formatAppDetail,
@@ -12,8 +9,11 @@ import {
   formatExtractedKeywords,
   formatReviewsTable,
   formatChangesTable,
+  formatReviewInsight,
+  formatAppOverview,
+  formatAppSales,
+  formatAppEngagement,
 } from '../formatters/table.js';
-import { formatJson } from '../formatters/json.js';
 import { runCommand, validateStore, confirmDestructive } from './helpers.js';
 import type {
   ApiResponse,
@@ -21,19 +21,14 @@ import type {
   AppChange,
   AppLookup,
   AsoScoreResult,
+  AppOverviewResult,
+  AppEngagementResult,
+  AppSalesResult,
   ExtractKeywordsResult,
   Review,
+  ReviewInsightResult,
   UntrackAppResult,
 } from '../types.js';
-
-function requireConfig() {
-  const config = loadConfig();
-  if (!config) {
-    console.error(chalk.red('Not authenticated. Run `sonar auth login` first.'));
-    process.exit(1);
-  }
-  return config;
-}
 
 export function registerAppsCommand(program: Command): void {
   const apps = program
@@ -44,27 +39,13 @@ export function registerAppsCommand(program: Command): void {
     .command('list')
     .description('List all tracked apps')
     .action(async () => {
-      const config = requireConfig();
-      const globalOpts = program.opts();
-      const client = createClient(config, { verbose: globalOpts.verbose });
-
-      const spinner = globalOpts.table ? ora('Fetching apps...').start() : null;
-
-      try {
-        const result = await client.get<ApiResponse<App[]>>('/api/v1/apps');
-
-        if (spinner) spinner.stop();
-
-        if (globalOpts.table) {
-          console.log(formatAppsTable(result.data));
-        } else {
-          console.log(formatJson(result));
-        }
-      } catch (err) {
-        if (spinner) spinner.fail('Failed to fetch apps');
-        console.error(chalk.red((err as Error).message));
-        process.exit(1);
-      }
+      await runCommand(
+        program,
+        { loading: 'Fetching apps...', failed: 'Failed to fetch apps' },
+        (client) =>
+          client.get<ApiResponse<App[]>>('/api/v1/apps'),
+        (result) => formatAppsTable(result.data),
+      );
     });
 
   apps
@@ -72,27 +53,13 @@ export function registerAppsCommand(program: Command): void {
     .description('Get details for a specific app')
     .argument('<id>', 'App ID')
     .action(async (id: string) => {
-      const config = requireConfig();
-      const globalOpts = program.opts();
-      const client = createClient(config, { verbose: globalOpts.verbose });
-
-      const spinner = globalOpts.table ? ora('Fetching app...').start() : null;
-
-      try {
-        const result = await client.get<ApiResponse<App>>(`/api/v1/apps/${id}`);
-
-        if (spinner) spinner.stop();
-
-        if (globalOpts.table) {
-          console.log(formatAppDetail(result.data));
-        } else {
-          console.log(formatJson(result));
-        }
-      } catch (err) {
-        if (spinner) spinner.fail('Failed to fetch app');
-        console.error(chalk.red((err as Error).message));
-        process.exit(1);
-      }
+      await runCommand(
+        program,
+        { loading: 'Fetching app...', failed: 'Failed to fetch app' },
+        (client) =>
+          client.get<ApiResponse<App>>(`/api/v1/apps/${id}`),
+        (result) => formatAppDetail(result.data),
+      );
     });
 
   apps
@@ -190,6 +157,7 @@ export function registerAppsCommand(program: Command): void {
     .requiredOption('--store <store>', 'App store (ios or android)')
     .option('--country <cc>', 'Country code', 'us')
     .option('--sort <sort>', 'Sort order (recent or helpful)')
+    .option('--lang <code>', 'Android language feed; default merges market language plus en, es, fr, ar')
     .option('--min-rating <n>', 'Minimum star rating (1-5)', parseInt)
     .option('--max-rating <n>', 'Maximum star rating (1-5)', parseInt)
     .option('--limit <n>', 'Max reviews to return', parseInt)
@@ -204,11 +172,116 @@ export function registerAppsCommand(program: Command): void {
             id: storeId,
             country: opts.country,
             sort: opts.sort,
+            lang: opts.lang,
             min_rating: opts.minRating,
             max_rating: opts.maxRating,
             limit: opts.limit,
           }),
         (result) => formatReviewsTable(result.data),
+      );
+    });
+
+  apps
+    .command('overview')
+    .description("The dashboard's computed scoreboard for one of your apps (visibility, movement, opportunities)")
+    .argument('<app-id>', 'Sonar app ID of one of your own tracked apps')
+    .option('--days <n>', 'Rank-history window in days (7-90, default 30)', parseInt)
+    .action(async (appId: string, opts) => {
+      await runCommand(
+        program,
+        { loading: 'Computing overview...', failed: 'Failed to fetch overview' },
+        (client) =>
+          client.get<ApiResponse<AppOverviewResult>>(
+            `/api/v1/apps/${appId}/overview`,
+            { days: opts.days },
+          ),
+        (result) => formatAppOverview(result.data),
+      );
+    });
+
+  // App Store Connect data (Agency plan + an ASC connection, iOS only).
+  const ascWindow = (opts: { start?: string; end?: string; days?: number; store?: string }) => {
+    if (opts.store) validateStore(opts.store);
+    return { start: opts.start, end: opts.end, days: opts.days, store: opts.store };
+  };
+
+  apps
+    .command('sales')
+    .description('App Store Connect sales for one of your iOS apps: downloads, redownloads, IAP units, approximate proceeds (Agency plan)')
+    .argument('<app-id>', 'Sonar app ID (or store id) of one of your own tracked iOS apps')
+    .option('--start <date>', 'First day, YYYY-MM-DD (inclusive)')
+    .option('--end <date>', 'Last day, YYYY-MM-DD (inclusive, default yesterday UTC)')
+    .option('--days <n>', 'Window length in days when --start is omitted (1-366, default 30)', parseInt)
+    .option('--store <store>', 'Disambiguate a store id tracked in both stores (ios or android)')
+    .action(async (appId: string, opts) => {
+      const params = ascWindow(opts);
+      await runCommand(
+        program,
+        { loading: 'Fetching App Store Connect sales...', failed: 'Failed to fetch sales' },
+        (client) =>
+          client.get<ApiResponse<AppSalesResult>>(
+            `/api/v1/apps/${encodeURIComponent(appId)}/sales`,
+            params,
+          ),
+        (result) => formatAppSales(result.data),
+      );
+    });
+
+  apps
+    .command('engagement')
+    .description('App Store Connect engagement for one of your iOS apps: impressions, page views, downloads, sources, sessions (Agency plan)')
+    .argument('<app-id>', 'Sonar app ID (or store id) of one of your own tracked iOS apps')
+    .option('--start <date>', 'First day, YYYY-MM-DD (inclusive)')
+    .option('--end <date>', 'Last day, YYYY-MM-DD (inclusive, default yesterday UTC)')
+    .option('--days <n>', 'Window length in days when --start is omitted (1-366, default 30)', parseInt)
+    .option('--store <store>', 'Disambiguate a store id tracked in both stores (ios or android)')
+    .action(async (appId: string, opts) => {
+      const params = ascWindow(opts);
+      await runCommand(
+        program,
+        { loading: 'Fetching App Store Connect engagement...', failed: 'Failed to fetch engagement' },
+        (client) =>
+          client.get<ApiResponse<AppEngagementResult>>(
+            `/api/v1/apps/${encodeURIComponent(appId)}/engagement`,
+            params,
+          ),
+        (result) => formatAppEngagement(result.data),
+      );
+    });
+
+  apps
+    .command('insights')
+    .description('Latest AI review insight for a tracked app (praise/complaint themes, sentiment, trends)')
+    .argument('<app-id>', 'Sonar app ID of a tracked app (own or competitor)')
+    .option('--country <cc>', 'Reviews market (insights are per country)', 'us')
+    .action(async (appId: string, opts) => {
+      await runCommand(
+        program,
+        { loading: 'Fetching review insight...', failed: 'Failed to fetch review insight' },
+        (client) =>
+          client.get<ApiResponse<ReviewInsightResult>>(
+            `/api/v1/apps/${appId}/review-insights`,
+            { country: opts.country },
+          ),
+        (result) => formatReviewInsight(result.data),
+      );
+    });
+
+  apps
+    .command('analyze-reviews')
+    .description('Generate a fresh AI review insight for a tracked app (90-day cooldown, needs a write-scope key)')
+    .argument('<app-id>', 'Sonar app ID of a tracked app (own or competitor)')
+    .option('--country <cc>', 'Reviews market (insights are per country)', 'us')
+    .action(async (appId: string, opts) => {
+      await runCommand(
+        program,
+        { loading: 'Analyzing reviews (this can take ~30s)...', failed: 'Failed to generate review insight' },
+        (client) =>
+          client.post<ApiResponse<ReviewInsightResult>>(
+            `/api/v1/apps/${appId}/review-insights?country=${encodeURIComponent(opts.country)}`,
+            {},
+          ),
+        (result) => formatReviewInsight(result.data),
       );
     });
 
